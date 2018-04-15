@@ -65,7 +65,6 @@ with tf.Session() as sess:
                                                                              'reward': reward, 'done': done,
                                                                              'to': new_observation,
                                                                              'q_value': q_value}])
-            epoch_total_reward += reward
             batch_q_values = []
             batch_observations = []
             for experience in sample_from_memory(experience_replay_memory):
@@ -77,6 +76,8 @@ with tf.Session() as sess:
                 batch_q_values.append(new_q_value)
                 batch_observations.append(experience['from'])
             optimizer.run({inputs: batch_observations, outputs: batch_q_values})
+            epoch_total_reward += reward
+            observation = new_observation
             t += 1
             if done:
                 if epoch % 100 == 0:
