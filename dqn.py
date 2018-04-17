@@ -6,7 +6,7 @@ import tensorflow as tf
 
 # env = gym.make('MountainCar-v0')
 env = gym.make('CartPole-v0')
-state_embedding_size = env.observation_space.shape[0]
+state_embedding_size = 4 * env.observation_space.shape[0]
 action_embedding_size = env.action_space.n
 print(state_embedding_size, action_embedding_size)
 layer_units = [state_embedding_size, 256, 128, action_embedding_size]
@@ -14,16 +14,17 @@ layer_units = [state_embedding_size, 256, 128, action_embedding_size]
 inputs = tf.placeholder(np.float32, [None, state_embedding_size], name='inputs')
 outputs = tf.placeholder(np.float32, [None, action_embedding_size], name='outputs')
 
-input_layer = tf.layers.dense(inputs=inputs, units=layer_units[0], activation=tf.nn.tanh, name='in_layer')
-hidden1_layer = tf.layers.dense(inputs=input_layer, units=layer_units[1], activation=tf.nn.relu, name='h1_layer')
+input_layer = tf.layers.dense(inputs=inputs, units=layer_units[0], activation=tf.nn.relu, name='in_layer')
+hidden1_layer = tf.layers.dense(inputs=input_layer, units=layer_units[1], activation=tf.nn.tanh, name='h1_layer')
 hidden2_layer = tf.layers.dense(inputs=hidden1_layer, units=layer_units[2], activation=tf.nn.relu, name='h2_layer')
 output_layer = tf.layers.dense(inputs=hidden2_layer, units=layer_units[3], activation=tf.nn.relu, name='out_layer')
 
 loss = tf.losses.mean_squared_error(outputs, output_layer)
+# optimizer = tf.train.AdamOptimizer(1e-3, name='optimizer').minimize(loss)
 optimizer = tf.train.AdamOptimizer(1e-3, name='optimizer').minimize(loss)
 
 epochs = 10000
-gamma = 0.99
+gamma = 0.9
 epsilon = .5
 
 
@@ -34,11 +35,17 @@ def get_epsilon(i):
 
 
 def sample_from_memory(memory):
-    min_batch_size = 8
+    min_batch_size = 64
     if memory.shape[0] > 1:
         return memory[np.random.randint(0, memory.shape[0] - 1, np.min([min_batch_size, memory.shape[0]]), int)]
     else:
         return memory
+
+
+def get_last_observation(memory):
+    if memory.shape[0] == 0:
+        return np.array([0 for _ in range(4 * env.observation_space.shape[0])], dtype=np.float32)
+    return memory[-1]['to']
 
 
 with tf.Session() as sess:
@@ -55,16 +62,18 @@ with tf.Session() as sess:
         experience_replay_memory = np.array([])
         while not done:
             # print(t)
-            q_value = sess.run(output_layer, {inputs: [observation]})[0]
+            q_value = sess.run(output_layer, {inputs: [get_last_observation(experience_replay_memory)]})[0]
             if random() < epsilon:
                 action = env.action_space.sample()
             else:
                 action = np.argmax(q_value)
             new_observation, reward, done, info = env.step(action)
-            experience_replay_memory = np.append(experience_replay_memory, [{'from': observation, 'action': action,
-                                                                             'reward': reward, 'done': done,
-                                                                             'to': new_observation,
-                                                                             'q_value': q_value}])
+            experience_replay_memory = np.append(experience_replay_memory, [
+                {'from': get_last_observation(experience_replay_memory), 'action': action,
+                 'reward': reward, 'done': done,
+                 'to': np.append(get_last_observation(experience_replay_memory)[env.observation_space.shape[0]:],
+                                 new_observation),
+                 'q_value': q_value}])
             batch_q_values = []
             batch_observations = []
             for experience in sample_from_memory(experience_replay_memory):
@@ -92,16 +101,16 @@ with tf.Session() as sess:
                 break
         epoch += 1
 
-    while True:
-        observation = env.reset()
-        t = 0
-        done = False
-        while not done:
-            env.render()
-            q_value = sess.run(output_layer, {inputs: [observation]})[0]
-            action = np.argmax(q_value)
-            observation, reward, done, info = env.step(action)
-            t += 1
-            if done:
-                print("Test Episode finished after {} timesteps".format(t))
-                break
+    # while True:
+    #     observation = env.reset()
+    #     t = 0
+    #     done = False
+    #     while not done:
+    #         env.render()
+    #         q_value = sess.run(output_layer, {inputs: [observation]})[0]
+    #         action = np.argmax(q_value)
+    #         observation, reward, done, info = env.step(action)
+    #         t += 1
+    #         if done:
+    #             print("Test Episode finished after {} timesteps".format(t))
+    #             break
