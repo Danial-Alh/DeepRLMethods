@@ -1,3 +1,4 @@
+from os.path import exists
 from random import random
 
 import gym
@@ -22,6 +23,7 @@ output_layer = tf.layers.dense(inputs=hidden2_layer, units=layer_units[3], activ
 loss = tf.losses.mean_squared_error(outputs, output_layer)
 # optimizer = tf.train.AdamOptimizer(1e-3, name='optimizer').minimize(loss)
 optimizer = tf.train.AdamOptimizer(1e-3, name='optimizer').minimize(loss)
+saver = tf.train.Saver()
 
 epochs = 10000
 gamma = 0.9
@@ -42,14 +44,17 @@ def sample_from_memory(memory):
         return memory
 
 
-def get_last_observation(memory):
+def get_last_state(memory, current_observation):
     if memory.shape[0] == 0:
-        return np.array([0 for _ in range(4 * env.observation_space.shape[0])], dtype=np.float32)
+        return np.array([0 for _ in range(3 * env.observation_space.shape[0])] + list(current_observation),
+                        dtype=np.float32)
     return memory[-1]['to']
 
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
+    if exists('./model/vars.ckpt'):
+        saver.restore(sess, './model/vars.ckpt')
     loss_value = 1
     epoch = 0
     # while loss_value > 0.002:
@@ -62,16 +67,16 @@ with tf.Session() as sess:
         experience_replay_memory = np.array([])
         while not done:
             # print(t)
-            q_value = sess.run(output_layer, {inputs: [get_last_observation(experience_replay_memory)]})[0]
+            q_value = sess.run(output_layer, {inputs: [get_last_state(experience_replay_memory, observation)]})[0]
             if random() < epsilon:
                 action = env.action_space.sample()
             else:
                 action = np.argmax(q_value)
             new_observation, reward, done, info = env.step(action)
             experience_replay_memory = np.append(experience_replay_memory, [
-                {'from': get_last_observation(experience_replay_memory), 'action': action,
+                {'from': get_last_state(experience_replay_memory, observation), 'action': action,
                  'reward': reward, 'done': done,
-                 'to': np.append(get_last_observation(experience_replay_memory)[env.observation_space.shape[0]:],
+                 'to': np.append(get_last_state(experience_replay_memory, observation)[env.observation_space.shape[0]:],
                                  new_observation),
                  'q_value': q_value}])
             batch_q_values = []
@@ -89,28 +94,32 @@ with tf.Session() as sess:
             observation = new_observation
             t += 1
             if done:
-                if epoch % 100 == 0:
+                if epoch % 1000 == 0:
                     loss_value = sess.run(loss, {inputs: batch_observations, outputs: batch_q_values})
+                    saver.save(sess, './model/vars.ckpt')
+                    print('variable new values saved!')
                     print(
                         "Episode {} training finished after {} timesteps\n"
                         "total loss: {}\n"
                         "total reward gained: {}\n"
-                        "epsilon: {}".
-                            format(epoch, t, loss_value, epoch_total_reward, epsilon))
+                        "epsilon: {}".format(epoch, t, loss_value, epoch_total_reward, epsilon))
                     # print(q_value_history[0])
                 break
         epoch += 1
 
-    # while True:
-    #     observation = env.reset()
-    #     t = 0
-    #     done = False
-    #     while not done:
-    #         env.render()
-    #         q_value = sess.run(output_layer, {inputs: [observation]})[0]
-    #         action = np.argmax(q_value)
-    #         observation, reward, done, info = env.step(action)
-    #         t += 1
-    #         if done:
-    #             print("Test Episode finished after {} timesteps".format(t))
-    #             break
+    for _ in range(10):
+        observation = env.reset()
+        done = False
+        t = 0
+        epoch_total_reward = 0.0
+        last_state = get_last_state(np.array([]), observation)
+        while not done:
+            env.render()
+            q_value = sess.run(output_layer, {inputs: [observation]})[0]
+            action = np.argmax(q_value)
+            observation, reward, done, info = env.step(action)
+            last_state = np.append(last_state[env.observation_space.shape[0]:], observation)
+            t += 1
+            if done:
+                print("Test Episode finished after {} timesteps".format(t))
+                break
