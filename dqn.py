@@ -52,9 +52,11 @@ def get_last_state(memory, current_observation):
 
 
 with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
-    if exists('./model/vars.ckpt'):
+    if exists('./model/checkpoint'):
         saver.restore(sess, './model/vars.ckpt')
+        print('variable new values restored!')
+    else:
+        sess.run(tf.global_variables_initializer())
     loss_value = 1
     epoch = 0
     # while loss_value > 0.002:
