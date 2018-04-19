@@ -25,7 +25,7 @@ loss = tf.losses.mean_squared_error(outputs, output_layer)
 optimizer = tf.train.AdamOptimizer(1e-3, name='optimizer').minimize(loss)
 saver = tf.train.Saver()
 
-epochs = 10000
+epochs = 1000000
 gamma = 0.9
 epsilon = .5
 
@@ -33,7 +33,9 @@ epsilon = .5
 def get_epsilon(i):
     # alpha = 1e-5
     # return 1.0 - (i / np.sqrt(1 + alpha * (i ** 2))) * np.sqrt(alpha)
-    return 1.0 - float(i) / epochs
+    # return 1.0 - float(i) / epochs
+    return (1.0 - float(i) / epochs) * 0.1
+    # return .1
 
 
 def sample_from_memory(memory):
