@@ -32,6 +32,7 @@ class CartPolePolicyGradient:
         self.build_model()
         self.build_loss()
         self.build_ops()
+        self.load()
 
     def build_placeholders(self):
         self.state_over_time_input = tf.placeholder(tf.float32, (None, self.max_time_step, self.state_embedding_size),
@@ -187,7 +188,6 @@ class CartPolePolicyGradient:
     def train(self):
         epoch = -1
         expected_reward = 0.0
-        self.load()
         while expected_reward <= self.reward_threshold:
             epoch += 1
             # for epoch in range(self.total_epochs):
