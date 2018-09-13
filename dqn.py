@@ -35,7 +35,7 @@ class GymDQNLearner:
         # alpha = 1e-5
         # return 1.0 - (i / np.sqrt(1 + alpha * (i ** 2))) * np.sqrt(alpha)
         # return 1.0 - float(i) / epochs
-        return max(0.1, self.epsilon * (0.9 ** i))
+        return max(0.1, self.epsilon * (0.9989 ** i))
         # return 1
 
     def get_state_weights(self, trajectory):
@@ -160,11 +160,11 @@ class GymDQNLearner:
             # action = self.get_action(0, q_value) # random action
             action = np.argmax(q_value)
             mod = total_reward % 1000
-            if total_reward == 1000:
+            # if total_reward == 1000:
+            if mod in (0, 1, 2, 3):
                 print(total_reward)
                 # action = self.env.action_space.sample()
-                # action = 1 - action
-                break
+                action = 1 - action
             observation, reward, done, info = self.env.step(action)
             total_reward += reward
             if done:
@@ -188,10 +188,10 @@ class GymDQNLearner:
 
 
 model = GymDQNLearner()
-model.train()
+# model.train()
 rewards = []
 while True:
-    total_reward = model.play(True)
+    total_reward = model.play(False)
     rewards.append(total_reward)
     print('total reward: %d' % total_reward)
     print('reward mean: %f, std: %f' % (np.mean(rewards), np.std(rewards)))
