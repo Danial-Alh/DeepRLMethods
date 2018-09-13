@@ -8,20 +8,21 @@ import tensorflow as tf
 class GymDQNLearner:
     def __init__(self):
         self.saving_path = './saved_models/dqn/'
-        self.epochs = 1000
-        self.gamma = 0.9
-        self.epsilon = .5
-        self.train_per_epoch = 10
-        self.n_generating_trajectory_per_epoch = 20
-        self.max_memory_size = 10000
+        self.epochs = 10000
+        self.gamma = .9
+        self.epsilon = 1.
+        self.train_per_epoch = 1
+        self.n_generating_trajectories_per_epoch = 1
+        self.max_memory_size = 5000
+        self.max_trajectory_length = 1000
         self.batch_size = 64
 
-        self.env = gym.make('CartPole-v0')
+        self.env = gym.make('CartPole-v0').env
         self.state_embedding_size = self.env.observation_space.shape[0]
         self.number_of_actions = self.env.action_space.n
         print(self.state_embedding_size, self.number_of_actions)
-        self.layer_units = [64, 32, self.number_of_actions]
-        self.layer_activations = ['tanh', 'relu', None]
+        self.layer_units = [512, 128, self.number_of_actions]
+        self.layer_activations = ['relu', 'relu', None]
         self.initialize_experience_replay_memory()
 
         self.create_model()
@@ -35,22 +36,35 @@ class GymDQNLearner:
         # return 1.0 - (i / np.sqrt(1 + alpha * (i ** 2))) * np.sqrt(alpha)
         # return 1.0 - float(i) / epochs
         return max(0.1, self.epsilon * (0.9 ** i))
-        # return .1
+        # return 1
 
-    def add_to_memory(self, from_state, action, reward, to_state, done, q_value):
-        if self.experience_replay_memory.shape[0] > self.max_memory_size:
-            self.experience_replay_memory = \
-                np.delete(self.experience_replay_memory, np.random.randint(0, self.experience_replay_memory.shape[0]))
-        self.experience_replay_memory = np.append(self.experience_replay_memory, [
-            {'from': from_state, 'action': action,
-             'reward': reward, 'done': done,
-             'to': to_state,
-             'q_value': q_value}])
+    def get_state_weights(self, trajectory):
+        total_reward = len(trajectory)
+        return [total_reward for i in range(total_reward)]
+
+    def add_to_memory(self, trajectory):
+        weights = self.get_state_weights(trajectory)
+        for (from_state, action, reward, to_state, done, q_value), weight in zip(trajectory, weights):
+            if self.experience_replay_memory.shape[0] >= self.max_memory_size:
+                # self.experience_replay_memory = \
+                #     np.delete(self.experience_replay_memory, np.random.randint(0, self.experience_replay_memory.shape[0]))
+                # self.experience_replay_memory = self.experience_replay_memory[1:]
+                min_element = np.argmin([exp['weight'] for exp in self.experience_replay_memory])
+                self.experience_replay_memory = \
+                    np.delete(self.experience_replay_memory, min_element)
+            self.experience_replay_memory = np.append(self.experience_replay_memory, [
+                {'from': from_state, 'action': action,
+                 'reward': reward, 'done': done,
+                 'to': to_state,
+                 'q_value': q_value,
+                 'weight': weight}])
 
     def sample_from_memory(self):
         if self.experience_replay_memory.shape[0] > 1:
+            weights = np.array([exp['weight'] for exp in self.experience_replay_memory])
+            p = weights / np.sum(weights)
             return np.random.choice(self.experience_replay_memory,
-                                    np.min([self.batch_size, self.experience_replay_memory.shape[0]]))
+                                    np.min([self.batch_size, self.experience_replay_memory.shape[0]]), p=p)
         else:
             return self.experience_replay_memory
 
@@ -78,18 +92,27 @@ class GymDQNLearner:
         self.saver = tf.train.Saver()
         self.sess = tf.Session()
 
+    def get_action(self, epoch, q_value):
+        if random() < self.get_epsilon(epoch):
+            action = self.env.action_space.sample()
+        else:
+            action = np.argmax(q_value)
+        return action
+
     def generate_new_trajectories(self, epoch):
-        for _ in range(self.n_generating_trajectory_per_epoch):
+        for _ in range(self.n_generating_trajectories_per_epoch):
             observation = self.env.reset()
             done = False
+            trajectory = []
             while not done:
                 q_value = self.sess.run(self.output_layer, {self.inputs: [observation]})[0]
-                if random() < self.get_epsilon(epoch):
-                    action = self.env.action_space.sample()
-                else:
-                    action = np.argmax(q_value)
+                action = self.get_action(epoch, q_value)
                 new_observation, reward, done, info = self.env.step(action)
-                self.add_to_memory(observation, action, reward, new_observation, done, q_value)
+                trajectory.append((observation, action, reward, new_observation, done, q_value))
+                observation = new_observation
+                if len(trajectory) > self.max_trajectory_length:
+                    break
+            self.add_to_memory(trajectory)
 
     def create_batch(self):
         batch_q_values = []
@@ -110,18 +133,20 @@ class GymDQNLearner:
         # while loss_value > 0.002:
         while epoch < self.epochs:
             self.generate_new_trajectories(epoch)
-            loss = None
+            epoch_loss = None
             for sub_epoch_id in range(self.train_per_epoch):
                 batch_observations, batch_q_values = self.create_batch()
-                _, loss = self.sess.run((self.train_op, self.loss),
-                                        {self.inputs: batch_observations, self.outputs: batch_q_values})
+                _, epoch_loss = self.sess.run((self.train_op, self.loss),
+                                              {self.inputs: batch_observations, self.outputs: batch_q_values})
             self.save()
             epoch_total_reward = self.play()
             print(
                 "*********** epoch {} ***********\n"
+                "memory size: {}\n"
                 "total loss: {}\n"
                 "total reward gained: {}\n"
-                "epsilon: {}".format(epoch, loss, epoch_total_reward, self.get_epsilon(epoch)))
+                "epsilon: {}".format(epoch, self.experience_replay_memory.shape[0],
+                                     epoch_loss, epoch_total_reward, self.get_epsilon(epoch)))
             epoch += 1
 
     def play(self, render=False):
@@ -132,7 +157,14 @@ class GymDQNLearner:
             if render:
                 self.env.render()
             q_value = self.sess.run(self.output_layer, {self.inputs: [observation]})[0]
+            # action = self.get_action(0, q_value) # random action
             action = np.argmax(q_value)
+            mod = total_reward % 1000
+            if total_reward == 1000:
+                print(total_reward)
+                # action = self.env.action_space.sample()
+                # action = 1 - action
+                break
             observation, reward, done, info = self.env.step(action)
             total_reward += reward
             if done:
@@ -157,6 +189,9 @@ class GymDQNLearner:
 
 model = GymDQNLearner()
 model.train()
+rewards = []
 while True:
     total_reward = model.play(True)
+    rewards.append(total_reward)
     print('total reward: %d' % total_reward)
+    print('reward mean: %f, std: %f' % (np.mean(rewards), np.std(rewards)))
