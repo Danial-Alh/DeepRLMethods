@@ -244,5 +244,5 @@ class CartPolePolicyGradient:
 
 
 model = CartPolePolicyGradient()
-model.train()
+# model.train()
 model.play()
