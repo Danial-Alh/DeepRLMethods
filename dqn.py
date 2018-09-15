@@ -3,6 +3,7 @@ from random import random
 import gym
 import numpy as np
 import tensorflow as tf
+from gym import wrappers
 
 
 class GymDQNLearner:
@@ -18,6 +19,7 @@ class GymDQNLearner:
         self.batch_size = 64
 
         self.env = gym.make('CartPole-v0').env
+        self.env = wrappers.Monitor(self.env, "./monitors/dqn/", force=True)
         self.state_embedding_size = self.env.observation_space.shape[0]
         self.number_of_actions = self.env.action_space.n
         print(self.state_embedding_size, self.number_of_actions)
@@ -149,17 +151,18 @@ class GymDQNLearner:
                                      epoch_loss, epoch_total_reward, self.get_epsilon(epoch)))
             epoch += 1
 
-    def play(self, render=False):
+    def play(self, render=False, max_timestep=None):
         total_reward = 0
         done = False
         observation = self.env.reset()
+        timestep = 0
         while not done:
             if render:
                 self.env.render()
             q_value = self.sess.run(self.output_layer, {self.inputs: [observation]})[0]
             # action = self.get_action(0, q_value) # random action
             action = np.argmax(q_value)
-            mod = total_reward % 1000
+            mod = total_reward % 100
             # if total_reward == 1000:
             if mod in (0, 1, 2, 3):
                 print(total_reward)
@@ -167,8 +170,14 @@ class GymDQNLearner:
                 action = 1 - action
             observation, reward, done, info = self.env.step(action)
             total_reward += reward
+            timestep += 1
             if done:
                 break
+            if max_timestep is not None:
+                if timestep > max_timestep:
+                    self.env.close()
+                    self.env.reset()
+                    break
         return total_reward
 
     def save(self):
@@ -190,8 +199,9 @@ class GymDQNLearner:
 model = GymDQNLearner()
 # model.train()
 rewards = []
-while True:
-    total_reward = model.play(False)
+total_reward = -1
+while total_reward < 150:
+    total_reward = model.play(False, 2000)
     rewards.append(total_reward)
     print('total reward: %d' % total_reward)
     print('reward mean: %f, std: %f' % (np.mean(rewards), np.std(rewards)))
